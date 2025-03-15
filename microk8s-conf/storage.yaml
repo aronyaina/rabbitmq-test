@@ -1,0 +1,33 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: microk8s-hostpath
+provisioner: microk8s.io/hostpath
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: microk8s-pv
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: microk8s-hostpath
+  hostPath:
+    path: /var/snap/microk8s/common/rabbits
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: microk8s-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: microk8s-hostpath

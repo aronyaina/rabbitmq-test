@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+spec:
+  serviceName: rabbitmq
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      serviceAccountName: rabbitmq
+      initContainers:
+      - name: config
+        image: busybox
+        command: ['/bin/sh', '-c', 'cp /tmp/config/rabbitmq.conf /config/rabbitmq.conf && cp /tmp/config/enabled_plugins /etc/rabbitmq/enabled_plugins']
+        volumeMounts:
+        - name: config
+          mountPath: /tmp/config/
+        - name: config-file
+          mountPath: /config/
+        - name: plugins-file
+          mountPath: /etc/rabbitmq/
+      containers:
+      - name: rabbitmq
+        image: rabbitmq:4.0-management
+        ports:
+        - containerPort: 4369
+          name: discovery
+        - containerPort: 5672
+          name: amqp
+        env:
+        - name: RABBIT_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: RABBIT_POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: RABBITMQ_NODENAME
+          value: rabbit@$(RABBIT_POD_NAME).rabbitmq.$(RABBIT_POD_NAMESPACE).svc.cluster.local
+        - name: RABBITMQ_USE_LONGNAME
+          value: "true"
+        - name: RABBITMQ_CONFIG_FILE
+          value: "/config/rabbitmq.conf"  # Added missing file extension
+        - name: RABBITMQ_ERLANG_COOKIE
+          valueFrom:
+            secretKeyRef:
+              name: rabbit-secret
+              key: RABBITMQ_ERLANG_COOKIE
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/rabbitmq
+        - name: config-file
+          mountPath: /config/
+        - name: plugins-file
+          mountPath: /etc/rabbitmq/
+      volumes:
+      - name: config-file
+        emptyDir: {}
+      - name: plugins-file
+        emptyDir: {}
+      - name: config
+        configMap:
+          name: rabbitmq-config
+          defaultMode: 0644
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "microk8s-hostpath"
+      resources:
+        requests:
+          storage: 1Gi  # Increased from 100Mi (RabbitMQ needs more space)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+spec:
+  clusterIP: None
+  ports:
+  - port: 4369
+    name: discovery
+  - port: 5672
+    name: amqp
+  - port: 15672
+    name: management
+  selector:
+    app: rabbitmq
