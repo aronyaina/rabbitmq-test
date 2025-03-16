@@ -4,7 +4,7 @@ metadata:
   name: rabbitmq
   namespace: rabbit
 spec:
-  serviceName: rabbit-svc
+  serviceName: rabbit
   replicas: 3
   selector:
     matchLabels:
@@ -70,11 +70,11 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         - name: RABBITMQ_NODENAME
-          value: "rabbit@$(RABBIT_POD_NAME).rabbit-svc.$(RABBIT_POD_NAMESPACE).svc.cluster.local"
+          value: "rabbit@$(RABBIT_POD_NAME).rabbit.$(RABBIT_POD_NAMESPACE).svc.cluster.local"
         - name: RABBITMQ_USE_LONGNAME
           value: "true"
         - name: RABBITMQ_CONFIG_FILE
-          value: "/etc/rabbitmq/rabbitmq.conf"  # Corrected path to match mount
+          value: "/etc/rabbitmq/rabbitmq.conf" 
         - name: RABBITMQ_ERLANG_COOKIE
           valueFrom:
             secretKeyRef:
@@ -109,7 +109,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: rabbit-svc
+  name: rabbit
   namespace: rabbit
 spec:
   clusterIP: None
