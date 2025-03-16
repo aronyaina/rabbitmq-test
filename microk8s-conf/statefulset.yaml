@@ -93,6 +93,8 @@ spec:
         - containerPort: 15692
           name: prometheus
           protocol: TCP
+        - containerPort: 25672  # Inter-node communication (critical!)
+          name: clustering
         livenessProbe:
           exec:
             command: ["rabbitmq-diagnostics", "status"]
@@ -129,5 +131,8 @@ spec:
   - name: prometheus
     port: 15692
     protocol: TCP
+  - name: clustering  # Required for inter-node communication
+    port: 25672
+    targetPort: 25672
   selector:
     app: rabbitmq
