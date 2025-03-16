@@ -2,12 +2,22 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: rabbitmq
+  namespace: rabbit
 spec:
-  serviceName: rabbitmq
+  serviceName: rabbit-svc
   replicas: 3
   selector:
     matchLabels:
       app: rabbitmq
+  volumeClaimTemplates:
+  - metadata:
+      name: rabbitmq-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "microk8s-hostpath"
+      resources:
+        requests:
+          storage: 5Gi  
   template:
     metadata:
       labels:
@@ -15,24 +25,41 @@ spec:
     spec:
       serviceAccountName: rabbitmq
       initContainers:
-      - name: config
+      - name: "rabbitmq-config"
         image: busybox
-        command: ['/bin/sh', '-c', 'cp /tmp/config/rabbitmq.conf /config/rabbitmq.conf && cp /tmp/config/enabled_plugins /etc/rabbitmq/enabled_plugins']
         volumeMounts:
-        - name: config
-          mountPath: /tmp/config/
-        - name: config-file
-          mountPath: /config/
-        - name: plugins-file
-          mountPath: /etc/rabbitmq/
+        - name: rabbitmq-config
+          mountPath: /tmp/rabbitmq
+        - name: rabbitmq-config-rw
+          mountPath: /etc/rabbitmq
+        command:
+        - sh
+        - -c
+        - cp /tmp/rabbitmq/rabbitmq.conf /etc/rabbitmq/rabbitmq.conf && echo '' >> /etc/rabbitmq/rabbitmq.conf; cp /tmp/rabbitmq/enabled_plugins /etc/rabbitmq/enabled_plugins
+      volumes:
+      - name: rabbitmq-config
+        configMap:
+          name: rabbitmq-config
+          items:
+          - key: enabled_plugins
+            path: "enabled_plugins"
+          - key: rabbitmq.conf
+            path: "rabbitmq.conf"
+      - name: rabbitmq-config-rw
+        emptyDir: {}
+      securityContext:
+        fsGroup: 999
+        runAsUser: 999
+        runAsGroup: 999
+
       containers:
       - name: rabbitmq
         image: rabbitmq:4.0-management
-        ports:
-        - containerPort: 4369
-          name: discovery
-        - containerPort: 5672
-          name: amqp
+        volumeMounts:
+        - name: rabbitmq-config-rw
+          mountPath: "/etc/rabbitmq"
+        - name: rabbitmq-data
+          mountPath: "/var/lib/rabbitmq/mnesia"
         env:
         - name: RABBIT_POD_NAME
           valueFrom:
@@ -43,54 +70,64 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         - name: RABBITMQ_NODENAME
-          value: rabbit@$(RABBIT_POD_NAME).rabbitmq.$(RABBIT_POD_NAMESPACE).svc.cluster.local
+          value: "rabbit@$(RABBIT_POD_NAME).rabbit-svc.$(RABBIT_POD_NAMESPACE).svc.cluster.local"
         - name: RABBITMQ_USE_LONGNAME
           value: "true"
         - name: RABBITMQ_CONFIG_FILE
-          value: "/config/rabbitmq.conf"  # Added missing file extension
+          value: "/etc/rabbitmq/rabbitmq.conf"  # Corrected path to match mount
         - name: RABBITMQ_ERLANG_COOKIE
           valueFrom:
             secretKeyRef:
               name: rabbit-secret
               key: RABBITMQ_ERLANG_COOKIE
-        volumeMounts:
-        - name: data
-          mountPath: /var/lib/rabbitmq
-        - name: config-file
-          mountPath: /config/
-        - name: plugins-file
-          mountPath: /etc/rabbitmq/
-      volumes:
-      - name: config-file
-        emptyDir: {}
-      - name: plugins-file
-        emptyDir: {}
-      - name: config
-        configMap:
-          name: rabbitmq-config
-          defaultMode: 0644
-  volumeClaimTemplates:
-  - metadata:
-      name: data
-    spec:
-      accessModes: [ "ReadWriteOnce" ]
-      storageClassName: "microk8s-hostpath"
-      resources:
-        requests:
-          storage: 1Gi  # Increased from 100Mi (RabbitMQ needs more space)
+        ports:
+        - containerPort: 4369
+          name: discovery
+          protocol: TCP
+        - containerPort: 5672
+          name: amqp
+          protocol: TCP
+        - containerPort: 15672
+          name: management
+          protocol: TCP
+        - containerPort: 15692
+          name: prometheus
+          protocol: TCP
+        livenessProbe:
+          exec:
+            command: ["rabbitmq-diagnostics", "status"]
+          initialDelaySeconds: 60
+          periodSeconds: 60
+          timeoutSeconds: 15
+        readinessProbe:
+          exec:
+            command: ["rabbitmq-diagnostics", "ping"]
+          initialDelaySeconds: 20
+          periodSeconds: 60
+          timeoutSeconds: 10
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: rabbitmq
+  name: rabbit-svc
+  namespace: rabbit
 spec:
   clusterIP: None
   ports:
-  - port: 4369
-    name: discovery
-  - port: 5672
-    name: amqp
-  - port: 15672
-    name: management
+  - name: discovery
+    port: 4369
+    protocol: TCP
+    targetPort: 4369
+  - name: amqp
+    port: 5672
+    protocol: TCP
+    targetPort: 5672
+  - name: management
+    port: 15672
+    protocol: TCP
+    targetPort: 15672
+  - name: prometheus
+    port: 15692
+    protocol: TCP
   selector:
     app: rabbitmq
